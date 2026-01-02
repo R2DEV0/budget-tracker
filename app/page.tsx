@@ -2,21 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Settings = {
+type CategoryKey = "fun" | "groceries";
+
+type CategorySettings = {
+  label: string;
   budgetAmount: number;
   resetDays: number[]; // 1–28
   lastResetAt: string; // ISO
 };
 
+type Settings = {
+  activeCategory: CategoryKey;
+  categories: Record<CategoryKey, CategorySettings>;
+};
+
 type Tx = {
   id: string;
+  category: CategoryKey;
   datetime: string; // ISO
   description: string;
   amount: number; // can be + or -
 };
 
-const LS_SETTINGS = "bb_settings_v1";
-const LS_TX = "bb_tx_v1";
+const LS_SETTINGS = "bb_settings_multi_v1";
+const LS_TX = "bb_tx_multi_v1";
 
 /* ---------------- utils ---------------- */
 
@@ -31,7 +40,6 @@ function parseResetDays(input: string): number[] {
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isFinite(n) && n >= 1 && n <= 28);
-
   return Array.from(new Set(days)).sort((a, b) => a - b);
 }
 
@@ -42,13 +50,10 @@ function getMostRecentBoundary(now: Date, resetDays: number[]): Date {
 
   const candidates: Date[] = [];
   for (const base of [thisMonth, prevMonth]) {
-    for (const day of days) {
-      candidates.push(startOfDay(new Date(base.getFullYear(), base.getMonth(), day)));
-    }
+    for (const day of days) candidates.push(startOfDay(new Date(base.getFullYear(), base.getMonth(), day)));
   }
 
-  const past = candidates.filter((c) => c.getTime() <= now.getTime());
-  past.sort((a, b) => b.getTime() - a.getTime());
+  const past = candidates.filter((c) => c.getTime() <= now.getTime()).sort((a, b) => b.getTime() - a.getTime());
   return past[0] ?? startOfDay(thisMonth);
 }
 
@@ -59,13 +64,10 @@ function getNextBoundary(now: Date, resetDays: number[]): Date {
 
   const candidates: Date[] = [];
   for (const base of [thisMonth, nextMonth]) {
-    for (const day of days) {
-      candidates.push(startOfDay(new Date(base.getFullYear(), base.getMonth(), day)));
-    }
+    for (const day of days) candidates.push(startOfDay(new Date(base.getFullYear(), base.getMonth(), day)));
   }
 
-  const future = candidates.filter((c) => c.getTime() > now.getTime());
-  future.sort((a, b) => a.getTime() - b.getTime());
+  const future = candidates.filter((c) => c.getTime() > now.getTime()).sort((a, b) => a.getTime() - b.getTime());
   return future[0] ?? startOfDay(nextMonth);
 }
 
@@ -75,37 +77,71 @@ function money(n: number) {
 
 /* ---------------- storage ---------------- */
 
-function loadSettings(): Settings {
-  const fallback: Settings = {
-    budgetAmount: 300,
-    resetDays: [1, 15],
-    lastResetAt: new Date().toISOString(),
-  };
+function defaultSettings(): Settings {
+  const now = new Date();
+  const funDays = [1, 15];
+  const grocDays = [1, 15];
 
+  return {
+    activeCategory: "fun",
+    categories: {
+      fun: {
+        label: "Fun Money",
+        budgetAmount: 200,
+        resetDays: funDays,
+        lastResetAt: getMostRecentBoundary(now, funDays).toISOString(),
+      },
+      groceries: {
+        label: "Groceries",
+        budgetAmount: 250,
+        resetDays: grocDays,
+        lastResetAt: getMostRecentBoundary(now, grocDays).toISOString(),
+      },
+    },
+  };
+}
+
+function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
     if (!raw) {
-      const now = new Date();
-      const last = getMostRecentBoundary(now, fallback.resetDays);
-      const init: Settings = { ...fallback, lastResetAt: last.toISOString() };
+      const init = defaultSettings();
       localStorage.setItem(LS_SETTINGS, JSON.stringify(init));
       return init;
     }
-
     const parsed = JSON.parse(raw) as Partial<Settings>;
-    const budgetAmount = Number(parsed.budgetAmount);
-    const resetDays = Array.isArray(parsed.resetDays)
-      ? parsed.resetDays.map(Number).filter((d) => d >= 1 && d <= 28)
-      : [1, 15];
-    const lastResetAt = typeof parsed.lastResetAt === "string" ? parsed.lastResetAt : new Date().toISOString();
+
+    const init = defaultSettings();
+    const activeCategory: CategoryKey =
+      parsed.activeCategory === "groceries" || parsed.activeCategory === "fun" ? parsed.activeCategory : init.activeCategory;
+
+    const cat = (k: CategoryKey): CategorySettings => {
+      const p = (parsed.categories as any)?.[k] ?? {};
+      const budgetAmount = Number(p.budgetAmount);
+      const resetDays = Array.isArray(p.resetDays)
+        ? p.resetDays.map(Number).filter((d: number) => d >= 1 && d <= 28)
+        : init.categories[k].resetDays;
+      const lastResetAt = typeof p.lastResetAt === "string" ? p.lastResetAt : init.categories[k].lastResetAt;
+
+      return {
+        label: typeof p.label === "string" ? p.label : init.categories[k].label,
+        budgetAmount: Number.isFinite(budgetAmount) ? budgetAmount : init.categories[k].budgetAmount,
+        resetDays: resetDays.length ? Array.from(new Set(resetDays)).sort((a, b) => a - b) : init.categories[k].resetDays,
+        lastResetAt,
+      };
+    };
 
     return {
-      budgetAmount: Number.isFinite(budgetAmount) ? budgetAmount : 300,
-      resetDays: resetDays.length ? Array.from(new Set(resetDays)).sort((a, b) => a - b) : [1, 15],
-      lastResetAt,
+      activeCategory,
+      categories: {
+        fun: cat("fun"),
+        groceries: cat("groceries"),
+      },
     };
   } catch {
-    return fallback;
+    const init = defaultSettings();
+    localStorage.setItem(LS_SETTINGS, JSON.stringify(init));
+    return init;
   }
 }
 
@@ -152,140 +188,6 @@ function Toast({ show, text }: { show: boolean; text: string }) {
   );
 }
 
-/* ---------------- settings modal ---------------- */
-
-function SettingsModal({
-  open,
-  onClose,
-  budgetInput,
-  setBudgetInput,
-  resetDaysInput,
-  setResetDaysInput,
-  onSave,
-  helperText,
-}: {
-  open: boolean;
-  onClose: () => void;
-  budgetInput: string;
-  setBudgetInput: (v: string) => void;
-  resetDaysInput: string;
-  setResetDaysInput: (v: string) => void;
-  onSave: () => void;
-  helperText: string;
-}) {
-  if (!open) return null;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.45)",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "min(520px, 100%)",
-          background: "#fff",
-          borderRadius: 16,
-          border: "1px solid #eee",
-          padding: 16,
-          boxShadow: "0 20px 60px rgba(0,0,0,.25)",
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Settings</h2>
-          <button
-            onClick={onClose}
-            style={{
-              padding: "8px 12px",
-              borderRadius: 10,
-              border: "1px solid #ddd",
-              background: "#fff",
-              fontWeight: 800,
-            }}
-          >
-            Close
-          </button>
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Budget amount</label>
-          <input
-            inputMode="decimal"
-            value={budgetInput}
-            onChange={(e) => setBudgetInput(e.target.value)}
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid #ddd",
-              fontSize: 16,
-            }}
-          />
-        </div>
-
-        <div style={{ marginTop: 12 }}>
-          <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
-            Reset days of month (1–28, comma-separated)
-          </label>
-          <input
-            value={resetDaysInput}
-            onChange={(e) => setResetDaysInput(e.target.value)}
-            placeholder="1,15"
-            style={{
-              width: "100%",
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid #ddd",
-              fontSize: 16,
-            }}
-          />
-        </div>
-
-        <div style={{ opacity: 0.7, marginTop: 10, fontSize: 13 }}>{helperText}</div>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button
-            onClick={onSave}
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "none",
-              background: "#111",
-              color: "#fff",
-              fontWeight: 900,
-              fontSize: 16,
-            }}
-          >
-            Save
-          </button>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1,
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "1px solid #ddd",
-              background: "#fff",
-              fontWeight: 900,
-              fontSize: 16,
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------- page ---------------- */
 
 export default function Page() {
@@ -297,62 +199,80 @@ export default function Page() {
   const [amt, setAmt] = useState("");
 
   const [showSettings, setShowSettings] = useState(false);
-  const [budgetInput, setBudgetInput] = useState("");
-  const [resetDaysInput, setResetDaysInput] = useState("");
-
   const [toast, setToast] = useState(false);
+
+  // settings inputs (per category)
+  const [funBudgetInput, setFunBudgetInput] = useState("");
+  const [funResetDaysInput, setFunResetDaysInput] = useState("");
+  const [grocBudgetInput, setGrocBudgetInput] = useState("");
+  const [grocResetDaysInput, setGrocResetDaysInput] = useState("");
 
   useEffect(() => {
     const s = loadSettings();
     const list = loadTx();
-
-    // Auto-reset check
     const now = new Date();
-    const next = getNextBoundary(new Date(s.lastResetAt), s.resetDays);
 
-    if (now.getTime() >= next.getTime()) {
-      const last = getMostRecentBoundary(now, s.resetDays);
-      const updated: Settings = { ...s, lastResetAt: last.toISOString() };
-      saveSettings(updated);
-      saveTx([]);
-      setSettings(updated);
-      setTx([]);
-      setBudgetInput(String(updated.budgetAmount));
-      setResetDaysInput(updated.resetDays.join(","));
-      setReady(true);
-      return;
-    }
+    const updated: Settings = typeof structuredClone === "function" ? structuredClone(s) : JSON.parse(JSON.stringify(s));
 
-    setSettings(s);
+    (Object.keys(updated.categories) as CategoryKey[]).forEach((k) => {
+      const c = updated.categories[k];
+      const next = getNextBoundary(new Date(c.lastResetAt), c.resetDays);
+      if (now.getTime() >= next.getTime()) {
+        const last = getMostRecentBoundary(now, c.resetDays);
+        c.lastResetAt = last.toISOString();
+      }
+    });
+
+    saveSettings(updated);
+
+    setSettings(updated);
     setTx(list);
-    setBudgetInput(String(s.budgetAmount));
-    setResetDaysInput(s.resetDays.join(","));
+
+    setFunBudgetInput(String(updated.categories.fun.budgetAmount));
+    setFunResetDaysInput(updated.categories.fun.resetDays.join(","));
+    setGrocBudgetInput(String(updated.categories.groceries.budgetAmount));
+    setGrocResetDaysInput(updated.categories.groceries.resetDays.join(","));
+
     setReady(true);
   }, []);
 
+  const activeCategory: CategoryKey = settings?.activeCategory ?? "fun";
+  const active = settings?.categories[activeCategory];
+
   const periodTx = useMemo(() => {
     if (!settings) return [];
-    const cutoff = new Date(settings.lastResetAt).getTime();
-    return tx.filter((t) => new Date(t.datetime).getTime() >= cutoff);
-  }, [tx, settings]);
+    const cutoff = new Date(settings.categories[activeCategory].lastResetAt).getTime();
+    return tx
+      .filter((t) => t.category === activeCategory)
+      .filter((t) => new Date(t.datetime).getTime() >= cutoff)
+      .sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
+  }, [tx, settings, activeCategory]);
 
-  const spent = useMemo(() => periodTx.reduce((sum, t) => sum + t.amount, 0), [periodTx]);
-  const remaining = useMemo(() => (settings ? settings.budgetAmount - spent : 0), [settings, spent]);
+  const net = useMemo(() => periodTx.reduce((sum, t) => sum + t.amount, 0), [periodTx]);
+  const remaining = useMemo(() => (active ? active.budgetAmount - net : 0), [active, net]);
 
   const nextReset = useMemo(() => {
-    if (!settings) return null;
-    return getNextBoundary(new Date(), settings.resetDays);
-  }, [settings]);
+    if (!active) return null;
+    return getNextBoundary(new Date(), active.resetDays);
+  }, [active]);
+
+  function setActiveCategory(k: CategoryKey) {
+    if (!settings) return;
+    const updated = { ...settings, activeCategory: k };
+    saveSettings(updated);
+    setSettings(updated);
+  }
 
   function addTx() {
-    const amount = Number(amt);
+    if (!settings) return;
 
-    // allow negatives, disallow 0 and NaN
+    const amount = Number(amt);
     if (!desc.trim()) return;
     if (!Number.isFinite(amount) || amount === 0) return;
 
     const item: Tx = {
       id: crypto.randomUUID(),
+      category: activeCategory,
       datetime: new Date().toISOString(),
       description: desc.trim(),
       amount,
@@ -366,61 +286,106 @@ export default function Page() {
     setAmt("");
   }
 
-  function manualReset() {
+  function toastSaved() {
+    setToast(true);
+    window.setTimeout(() => setToast(false), 1400);
+  }
+
+  function saveAllSettings() {
+    if (!settings) return;
+
+    const funBudget = Number(funBudgetInput);
+    const funDays = parseResetDays(funResetDaysInput);
+    const grocBudget = Number(grocBudgetInput);
+    const grocDays = parseResetDays(grocResetDaysInput);
+
+    if (!Number.isFinite(funBudget) || funBudget < 0) return;
+    if (!funDays.length) return;
+
+    if (!Number.isFinite(grocBudget) || grocBudget < 0) return;
+    if (!grocDays.length) return;
+
+    const updated: Settings = {
+      ...settings,
+      categories: {
+        ...settings.categories,
+        fun: { ...settings.categories.fun, budgetAmount: funBudget, resetDays: funDays },
+        groceries: { ...settings.categories.groceries, budgetAmount: grocBudget, resetDays: grocDays },
+      },
+    };
+
+    saveSettings(updated);
+    setSettings(updated);
+    toastSaved();
+    setShowSettings(false);
+  }
+
+  function manualReset(category: CategoryKey) {
     if (!settings) return;
     const now = new Date();
-    const last = getMostRecentBoundary(now, settings.resetDays);
-    const updated: Settings = { ...settings, lastResetAt: last.toISOString() };
+    const c = settings.categories[category];
+    const last = getMostRecentBoundary(now, c.resetDays);
+
+    const updated: Settings = {
+      ...settings,
+      categories: {
+        ...settings.categories,
+        [category]: { ...c, lastResetAt: last.toISOString() },
+      },
+    };
 
     saveSettings(updated);
-    saveTx([]);
     setSettings(updated);
-    setTx([]);
+    toastSaved();
   }
 
-  function saveSettingsClick() {
-    if (!settings) return;
-
-    const budget = Number(budgetInput);
-    const days = parseResetDays(resetDaysInput);
-
-    if (!Number.isFinite(budget) || budget < 0) return;
-    if (!days.length) return;
-
-    const updated: Settings = { ...settings, budgetAmount: budget, resetDays: days };
-    saveSettings(updated);
-    setSettings(updated);
-
-    setToast(true);
-    window.setTimeout(() => setToast(false), 1600);
-  }
-
-  const helperText = useMemo(() => {
-    const days = parseResetDays(resetDaysInput);
+  const funHelper = useMemo(() => {
+    const days = parseResetDays(funResetDaysInput);
     if (!days.length) return "Enter at least one reset day between 1 and 28.";
-    if (days.length === 1) return `Budget resets monthly on day ${days[0]}.`;
-    return `Budget resets on days ${days.join(", ")}.`;
-  }, [resetDaysInput]);
+    if (days.length === 1) return `Resets monthly on day ${days[0]}.`;
+    return `Resets on days ${days.join(", ")}.`;
+  }, [funResetDaysInput]);
 
-  if (!ready || !settings) return null;
+  const grocHelper = useMemo(() => {
+    const days = parseResetDays(grocResetDaysInput);
+    if (!days.length) return "Enter at least one reset day between 1 and 28.";
+    if (days.length === 1) return `Resets monthly on day ${days[0]}.`;
+    return `Resets on days ${days.join(", ")}.`;
+  }, [grocResetDaysInput]);
+
+  if (!ready || !settings || !active) return null;
 
   return (
     <main style={{ maxWidth: 560, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>Budget</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>{active.label}</h1>
         <button
           onClick={() => setShowSettings(true)}
-          style={{
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid #ddd",
-            background: "#fff",
-            fontWeight: 900,
-          }}
+          style={{ padding: "10px 12px", borderRadius: 12, border: "1px solid #ddd", background: "#fff", fontWeight: 900 }}
         >
           Settings
         </button>
       </header>
+
+      {/* category switch */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+        {(["fun", "groceries"] as CategoryKey[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setActiveCategory(k)}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 999,
+              border: "1px solid #ddd",
+              background: k === activeCategory ? "#111" : "#fff",
+              color: k === activeCategory ? "#fff" : "#111",
+              fontWeight: 900,
+            }}
+          >
+            {settings.categories[k].label}
+          </button>
+        ))}
+      </div>
 
       <div style={{ marginTop: 10, padding: 12, border: "1px solid #eee", borderRadius: 14 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
@@ -430,12 +395,12 @@ export default function Page() {
           </div>
           <div>
             <div style={{ opacity: 0.7 }}>Net this period</div>
-            <div style={{ fontSize: 20, fontWeight: 800 }}>{money(spent)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>{money(net)}</div>
           </div>
         </div>
 
         <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>
-          Period started: <b>{new Date(settings.lastResetAt).toLocaleString()}</b>
+          Period started: <b>{new Date(active.lastResetAt).toLocaleString()}</b>
           {nextReset ? (
             <>
               {" "}
@@ -443,26 +408,12 @@ export default function Page() {
             </>
           ) : null}
         </div>
-
-        <button
-          onClick={manualReset}
-          style={{
-            marginTop: 10,
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid #ddd",
-            background: "#fff",
-            fontWeight: 900,
-          }}
-        >
-          Manual Reset
-        </button>
       </div>
 
       <section style={{ marginTop: 14, padding: 12, border: "1px solid #eee", borderRadius: 14 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 8 }}>Log spending</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 900, marginBottom: 8 }}>Log transaction</h2>
         <input
-          placeholder="What did you spend on?"
+          placeholder="Description"
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
           style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
@@ -470,7 +421,7 @@ export default function Page() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, marginTop: 10 }}>
           <input
             inputMode="decimal"
-            placeholder="Amount (use negative for refunds)"
+            placeholder="Amount (negative for refunds)"
             value={amt}
             onChange={(e) => setAmt(e.target.value)}
             style={{ padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
@@ -491,16 +442,14 @@ export default function Page() {
             Add
           </button>
         </div>
-        <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>
-          Transactions are saved locally on this device.
-        </div>
+        <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>Transactions are saved locally on this device.</div>
       </section>
 
       <section style={{ marginTop: 14 }}>
         <h2 style={{ fontSize: 16, fontWeight: 900 }}>This period</h2>
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
           {periodTx.length === 0 ? (
-            <div style={{ opacity: 0.7 }}>No spending logged yet.</div>
+            <div style={{ opacity: 0.7 }}>No transactions logged yet.</div>
           ) : (
             periodTx.slice(0, 15).map((t) => (
               <div
@@ -525,16 +474,194 @@ export default function Page() {
         </div>
       </section>
 
-      <SettingsModal
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        budgetInput={budgetInput}
-        setBudgetInput={setBudgetInput}
-        resetDaysInput={resetDaysInput}
-        setResetDaysInput={setResetDaysInput}
-        onSave={saveSettingsClick}
-        helperText={helperText}
-      />
+      {/* SETTINGS MODAL */}
+      {showSettings && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.45)",
+            padding: 16,
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+            display: "grid",
+            alignItems: "start",
+            justifyItems: "center",
+          }}
+          onClick={() => setShowSettings(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(560px, 100%)",
+              background: "#fff",
+              borderRadius: 16,
+              border: "1px solid #eee",
+              boxShadow: "0 20px 60px rgba(0,0,0,.25)",
+              maxHeight: "calc(100vh - 32px)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            {/* header */}
+            <div
+              style={{
+                padding: 16,
+                borderBottom: "1px solid #eee",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                position: "sticky",
+                top: 0,
+                background: "#fff",
+                zIndex: 2,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Settings</h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  fontWeight: 800,
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            {/* body */}
+            <div style={{ padding: 16, overflowY: "auto" }}>
+              {/* Fun */}
+              <div style={{ padding: 12, border: "1px solid #eee", borderRadius: 14 }}>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>{settings.categories.fun.label}</div>
+
+                <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Budget amount</label>
+                <input
+                  inputMode="decimal"
+                  value={funBudgetInput}
+                  onChange={(e) => setFunBudgetInput(e.target.value)}
+                  style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
+                />
+
+                <label style={{ display: "block", fontWeight: 800, marginTop: 10, marginBottom: 6 }}>
+                  Reset days of month (1–28, comma-separated)
+                </label>
+                <input
+                  value={funResetDaysInput}
+                  onChange={(e) => setFunResetDaysInput(e.target.value)}
+                  placeholder="1,15"
+                  style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
+                />
+                <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>{funHelper}</div>
+
+                <button
+                  onClick={() => manualReset("fun")}
+                  style={{
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    fontWeight: 900,
+                  }}
+                >
+                  Manual reset
+                </button>
+              </div>
+
+              {/* Groceries */}
+              <div style={{ marginTop: 12, padding: 12, border: "1px solid #eee", borderRadius: 14 }}>
+                <div style={{ fontWeight: 900, marginBottom: 8 }}>{settings.categories.groceries.label}</div>
+
+                <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Budget amount</label>
+                <input
+                  inputMode="decimal"
+                  value={grocBudgetInput}
+                  onChange={(e) => setGrocBudgetInput(e.target.value)}
+                  style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
+                />
+
+                <label style={{ display: "block", fontWeight: 800, marginTop: 10, marginBottom: 6 }}>
+                  Reset days of month (1–28, comma-separated)
+                </label>
+                <input
+                  value={grocResetDaysInput}
+                  onChange={(e) => setGrocResetDaysInput(e.target.value)}
+                  placeholder="1,15"
+                  style={{ width: "100%", padding: 12, borderRadius: 12, border: "1px solid #ddd", fontSize: 16 }}
+                />
+                <div style={{ opacity: 0.7, marginTop: 8, fontSize: 13 }}>{grocHelper}</div>
+
+                <button
+                  onClick={() => manualReset("groceries")}
+                  style={{
+                    marginTop: 10,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px solid #ddd",
+                    background: "#fff",
+                    fontWeight: 900,
+                  }}
+                >
+                  Manual reset
+                </button>
+              </div>
+
+              <div style={{ opacity: 0.7, marginTop: 12, fontSize: 13 }}>
+                Settings and transactions are saved locally on this device.
+              </div>
+            </div>
+
+            {/* footer */}
+            <div
+              style={{
+                padding: 16,
+                borderTop: "1px solid #eee",
+                position: "sticky",
+                bottom: 0,
+                background: "#fff",
+                zIndex: 2,
+                display: "flex",
+                gap: 10,
+              }}
+            >
+              <button
+                onClick={saveAllSettings}
+                style={{
+                  flex: 1,
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  border: "none",
+                  background: "#111",
+                  color: "#fff",
+                  fontWeight: 900,
+                  fontSize: 16,
+                }}
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{
+                  flex: 1,
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  fontWeight: 900,
+                  fontSize: 16,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast show={toast} text="Saved" />
     </main>
