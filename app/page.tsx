@@ -29,18 +29,38 @@ const LS_TX = "bb_tx_multi_v1";
 
 /* ---------------- utils ---------------- */
 
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
 function startOfDay(d: Date) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   return x;
 }
 
+function normalizeResetDays(input: unknown, fallback: number[]): number[] {
+  // Accept number[] or string[] (or mixed), return sanitized number[]
+  const arr: unknown[] = Array.isArray(input) ? input : [];
+  const days = arr
+    .map((v) => (typeof v === "string" ? Number(v.trim()) : v))
+    .filter(isFiniteNumber)
+    .map((n) => Math.floor(n))
+    .filter((n) => n >= 1 && n <= 28);
+
+  const uniqueSorted = Array.from(new Set<number>(days)).sort((a, b) => a - b);
+  return uniqueSorted.length ? uniqueSorted : fallback;
+}
+
 function parseResetDays(input: string): number[] {
   const days = input
     .split(",")
     .map((s) => Number(s.trim()))
-    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 28);
-  return Array.from(new Set(days)).sort((a, b) => a - b);
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.floor(n))
+    .filter((n) => n >= 1 && n <= 28);
+
+  return Array.from(new Set<number>(days)).sort((a, b) => a - b);
 }
 
 function getMostRecentBoundary(now: Date, resetDays: number[]): Date {
@@ -87,7 +107,7 @@ function defaultSettings(): Settings {
     categories: {
       fun: {
         label: "Fun Money",
-        budgetAmount: 200,
+        budgetAmount: 300,
         resetDays: funDays,
         lastResetAt: getMostRecentBoundary(now, funDays).toISOString(),
       },
@@ -102,44 +122,46 @@ function defaultSettings(): Settings {
 }
 
 function loadSettings(): Settings {
+  const init = defaultSettings();
+
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
     if (!raw) {
-      const init = defaultSettings();
       localStorage.setItem(LS_SETTINGS, JSON.stringify(init));
       return init;
     }
-    const parsed = JSON.parse(raw) as Partial<Settings>;
 
-    const init = defaultSettings();
+    const parsed = JSON.parse(raw) as any;
+
     const activeCategory: CategoryKey =
-      parsed.activeCategory === "groceries" || parsed.activeCategory === "fun" ? parsed.activeCategory : init.activeCategory;
+      parsed?.activeCategory === "groceries" || parsed?.activeCategory === "fun" ? parsed.activeCategory : init.activeCategory;
 
     const cat = (k: CategoryKey): CategorySettings => {
-      const p = (parsed.categories as any)?.[k] ?? {};
-      const budgetAmount = Number(p.budgetAmount);
-      const resetDays = Array.isArray(p.resetDays)
-        ? p.resetDays.map(Number).filter((d: number) => d >= 1 && d <= 28)
-        : init.categories[k].resetDays;
-      const lastResetAt = typeof p.lastResetAt === "string" ? p.lastResetAt : init.categories[k].lastResetAt;
+      const p = parsed?.categories?.[k] ?? {};
 
-      return {
-        label: typeof p.label === "string" ? p.label : init.categories[k].label,
-        budgetAmount: Number.isFinite(budgetAmount) ? budgetAmount : init.categories[k].budgetAmount,
-        resetDays: resetDays.length ? Array.from(new Set(resetDays)).sort((a, b) => a - b) : init.categories[k].resetDays,
-        lastResetAt,
-      };
+      const budgetAmountRaw = typeof p.budgetAmount === "string" ? Number(p.budgetAmount) : p.budgetAmount;
+      const budgetAmount = Number.isFinite(budgetAmountRaw) ? Number(budgetAmountRaw) : init.categories[k].budgetAmount;
+
+      const resetDays = normalizeResetDays(p.resetDays, init.categories[k].resetDays);
+
+      const lastResetAt =
+        typeof p.lastResetAt === "string" && !Number.isNaN(Date.parse(p.lastResetAt)) ? p.lastResetAt : init.categories[k].lastResetAt;
+
+      const label = typeof p.label === "string" && p.label.trim().length ? p.label : init.categories[k].label;
+
+      return { label, budgetAmount, resetDays, lastResetAt };
     };
 
-    return {
+    const settings: Settings = {
       activeCategory,
       categories: {
         fun: cat("fun"),
         groceries: cat("groceries"),
       },
     };
+
+    return settings;
   } catch {
-    const init = defaultSettings();
     localStorage.setItem(LS_SETTINGS, JSON.stringify(init));
     return init;
   }
@@ -521,13 +543,7 @@ export default function Page() {
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900 }}>Settings</h2>
               <button
                 onClick={() => setShowSettings(false)}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  background: "#fff",
-                  fontWeight: 800,
-                }}
+                style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #ddd", background: "#fff", fontWeight: 800 }}
               >
                 Close
               </button>
@@ -560,14 +576,7 @@ export default function Page() {
 
                 <button
                   onClick={() => manualReset("fun")}
-                  style={{
-                    marginTop: 10,
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    border: "1px solid #ddd",
-                    background: "#fff",
-                    fontWeight: 900,
-                  }}
+                  style={{ marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "1px solid #ddd", background: "#fff", fontWeight: 900 }}
                 >
                   Manual reset
                 </button>
@@ -598,22 +607,13 @@ export default function Page() {
 
                 <button
                   onClick={() => manualReset("groceries")}
-                  style={{
-                    marginTop: 10,
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    border: "1px solid #ddd",
-                    background: "#fff",
-                    fontWeight: 900,
-                  }}
+                  style={{ marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "1px solid #ddd", background: "#fff", fontWeight: 900 }}
                 >
                   Manual reset
                 </button>
               </div>
 
-              <div style={{ opacity: 0.7, marginTop: 12, fontSize: 13 }}>
-                Settings and transactions are saved locally on this device.
-              </div>
+              <div style={{ opacity: 0.7, marginTop: 12, fontSize: 13 }}>Settings and transactions are saved locally on this device.</div>
             </div>
 
             {/* footer */}
@@ -631,30 +631,13 @@ export default function Page() {
             >
               <button
                 onClick={saveAllSettings}
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  border: "none",
-                  background: "#111",
-                  color: "#fff",
-                  fontWeight: 900,
-                  fontSize: 16,
-                }}
+                style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "none", background: "#111", color: "#fff", fontWeight: 900, fontSize: 16 }}
               >
                 Save
               </button>
               <button
                 onClick={() => setShowSettings(false)}
-                style={{
-                  flex: 1,
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  border: "1px solid #ddd",
-                  background: "#fff",
-                  fontWeight: 900,
-                  fontSize: 16,
-                }}
+                style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "1px solid #ddd", background: "#fff", fontWeight: 900, fontSize: 16 }}
               >
                 Cancel
               </button>
