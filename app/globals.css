@@ -31,9 +31,15 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
+  /* Safe area insets for iOS notch/status bar - adds buffer space at top */
+  padding-top: env(safe-area-inset-top, 20px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 
 /* Mobile optimizations */
@@ -124,4 +130,9 @@ input::-moz-placeholder {
 input:-ms-input-placeholder {
   color: #666 !important;
   opacity: 1 !important;
+}
+
+/* Safe area support for iOS PWA - ensures main content has buffer space */
+main {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 12px) !important;
 }
