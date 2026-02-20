@@ -6,7 +6,15 @@ export const metadata: Metadata = {
   title: "Budget Buddy",
   description: "Quick budget logger",
   manifest: "/manifest.webmanifest",
-  themeColor: "#0b0b0b",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#667eea",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
