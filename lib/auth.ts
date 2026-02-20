@@ -1,5 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
+import { NextRequest } from "next/server";
 import { db, initDb } from "./db";
 
 const secret = new TextEncoder().encode(process.env.JWT_SECRET || "your-secret-key-change-in-production");
@@ -31,10 +32,10 @@ export async function verifyToken(token: string): Promise<{ userId: string } | n
   }
 }
 
-export async function getUserIdFromRequest(request: Request): Promise<string | null> {
+export async function getUserIdFromRequest(request: NextRequest): Promise<string | null> {
   const token = request.headers.get("authorization")?.replace("Bearer ", "") ||
-                request.cookies?.get("auth-token")?.value ||
-                new URL(request.url).searchParams.get("token");
+                request.cookies.get("auth-token")?.value ||
+                request.nextUrl.searchParams.get("token");
 
   if (!token) return null;
 
