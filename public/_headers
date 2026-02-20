@@ -1,0 +1,17 @@
+/_next/static/chunks/*.js
+  Content-Type: application/javascript
+
+/_next/static/chunks/*.css
+  Content-Type: text/css
+
+/_next/static/*.js
+  Content-Type: application/javascript
+
+/_next/static/*.css
+  Content-Type: text/css
+
+/*.js
+  Content-Type: application/javascript
+
+/*.css
+  Content-Type: text/css
