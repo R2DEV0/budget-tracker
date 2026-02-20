@@ -133,7 +133,7 @@ input:-ms-input-placeholder {
 /* Safe area support for iOS PWA - background extends to top, content has padding */
 main {
   padding-top: calc(env(safe-area-inset-top, 20px) + 12px) !important;
-  padding-left: env(safe-area-inset-left, 0px) !important;
-  padding-right: env(safe-area-inset-right, 0px) !important;
+  padding-left: calc(env(safe-area-inset-left, 0px) + 16px) !important;
+  padding-right: calc(env(safe-area-inset-right, 0px) + 16px) !important;
   padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px) !important;
 }
