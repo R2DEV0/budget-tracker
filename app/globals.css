@@ -104,3 +104,24 @@ body {
   background-size: 1000px 100%;
   animation: shimmer 2s infinite;
 }
+
+/* Input placeholder styling */
+input::placeholder {
+  color: #666 !important;
+  opacity: 1 !important;
+}
+
+input::-webkit-input-placeholder {
+  color: #666 !important;
+  opacity: 1 !important;
+}
+
+input::-moz-placeholder {
+  color: #666 !important;
+  opacity: 1 !important;
+}
+
+input:-ms-input-placeholder {
+  color: #666 !important;
+  opacity: 1 !important;
+}

@@ -655,6 +655,7 @@ export default function Page() {
                     borderRadius: 12,
                     border: "1px solid #ddd",
                     background: "#fff",
+                    color: "#333",
                     fontWeight: 900,
                     fontSize: 16,
                   }}
@@ -1357,6 +1358,7 @@ export default function Page() {
                   borderRadius: 12,
                   border: "2px solid #e0e0e0",
                   background: "#fff",
+                  color: "#333",
                   fontWeight: 900,
                   fontSize: "clamp(15px, 4vw, 16px)",
                   touchAction: "manipulation",
@@ -1466,6 +1468,7 @@ export default function Page() {
                   borderRadius: 12,
                   border: "1px solid #ddd",
                 background: "#fff",
+                  color: "#333",
                   fontWeight: 900,
                   fontSize: 16,
                 }}
