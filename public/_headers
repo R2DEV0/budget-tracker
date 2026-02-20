@@ -1,0 +1,9 @@
+/_next/static/chunks/*.js
+  Content-Type: application/javascript
+
+/_next/static/chunks/*.css
+  Content-Type: text/css
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
