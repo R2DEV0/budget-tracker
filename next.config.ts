@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  turbopack: {},
-  // Ensure proper asset handling
-  assetPrefix: process.env.NODE_ENV === "production" ? "" : undefined,
+  // Only use Turbopack in development
+  ...(process.env.NODE_ENV === "development" ? { turbopack: {} } : {}),
 };
 
 export default nextConfig;
