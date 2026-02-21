@@ -137,7 +137,6 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addingTx, setAddingTx] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
   // settings inputs
   const [budgetLabelInput, setBudgetLabelInput] = useState("");
@@ -151,12 +150,6 @@ export default function Page() {
 
   useEffect(() => {
     checkAuth();
-    
-    // Check if mobile on mount and resize
-    const checkMobile = () => setIsMobile(window.innerWidth <= 640);
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
   async function checkAuth() {
@@ -1108,7 +1101,7 @@ export default function Page() {
             inset: 0,
             background: "rgba(0,0,0,.6)",
             backdropFilter: "blur(5px)",
-            padding: isMobile ? 8 : 16,
+            padding: 16,
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
             display: "grid",
@@ -1121,7 +1114,7 @@ export default function Page() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: isMobile ? "calc(100% - 16px)" : "min(560px, calc(100% - 32px))",
+              width: "min(560px, calc(100% - 32px))",
               maxWidth: "100%",
               background: "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,255,255,0.95) 100%)",
               borderRadius: 24,
@@ -1131,7 +1124,7 @@ export default function Page() {
               display: "flex",
               flexDirection: "column",
               backdropFilter: "blur(20px)",
-              margin: isMobile ? "8px" : "16px",
+              margin: "16px",
               overflow: "hidden",
             }}
           >
